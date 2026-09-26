@@ -1,11 +1,22 @@
 // Generic Azure App Service deployment.
-// Creates (per app): an App Service Plan (or reuses an existing one), a Web App,
-// and optionally Log Analytics + Application Insights and a staging slot.
+// Creates (per app): the resource group, an App Service Plan (or reuses an existing one),
+// a Web App, and optionally Log Analytics + Application Insights and a staging slot.
+// The resource group name and location come from the parameters file.
 //
-// Deploy to an existing resource group:
-//   az deployment group create -g <rg> -f main.bicep -p parameters/dev.bicepparam
+// Deploy (subscription scope):
+//   az deployment sub create -l <location> -f main.bicep -p parameters/dev.bicepparam
 
-targetScope = 'resourceGroup'
+targetScope = 'subscription'
+
+// ---------- Resource group ----------
+
+@description('Name of the resource group to create or update.')
+@minLength(1)
+@maxLength(90)
+param resourceGroupName string
+
+@description('Azure region for the resource group and all resources.')
+param location string
 
 // ---------- Naming ----------
 
@@ -22,9 +33,6 @@ param appName string
   'prod'
 ])
 param environment string = 'dev'
-
-@description('Azure region. Defaults to the resource group location.')
-param location string = resourceGroup().location
 
 @description('Override the web app name (must be globally unique). Empty to auto-generate.')
 param webAppName string = ''
@@ -98,7 +106,7 @@ var isFreeOrShared = startsWith(toUpper(skuName), 'F') || startsWith(toUpper(sku
 
 var namePrefix = toLower('${appName}-${environment}')
 var planName = 'asp-${namePrefix}'
-var generatedWebAppName = take('app-${namePrefix}-${uniqueString(resourceGroup().id, appName, environment)}', 60)
+var generatedWebAppName = take('app-${namePrefix}-${uniqueString(subscription().id, resourceGroupName, appName, environment)}', 60)
 var finalWebAppName = empty(webAppName) ? generatedWebAppName : webAppName
 
 var allTags = union({
@@ -109,8 +117,15 @@ var allTags = union({
 
 // ---------- Resources ----------
 
+resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
+  name: resourceGroupName
+  location: location
+  tags: allTags
+}
+
 module plan 'modules/appServicePlan.bicep' = if (empty(existingAppServicePlanId)) {
   name: '${deployment().name}-plan'
+  scope: rg
   params: {
     name: planName
     location: location
@@ -124,6 +139,7 @@ module plan 'modules/appServicePlan.bicep' = if (empty(existingAppServicePlanId)
 
 module monitoring 'modules/monitoring.bicep' = if (enableMonitoring) {
   name: '${deployment().name}-monitoring'
+  scope: rg
   params: {
     namePrefix: namePrefix
     location: location
@@ -133,6 +149,7 @@ module monitoring 'modules/monitoring.bicep' = if (enableMonitoring) {
 
 module webApp 'modules/webApp.bicep' = {
   name: '${deployment().name}-webapp'
+  scope: rg
   params: {
     name: finalWebAppName
     location: location
@@ -152,6 +169,8 @@ module webApp 'modules/webApp.bicep' = {
 }
 
 // ---------- Outputs ----------
+
+output resourceGroupName string = rg.name
 
 output webAppName string = webApp.outputs.name
 output webAppUrl string = 'https://${webApp.outputs.defaultHostName}'

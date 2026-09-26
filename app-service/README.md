@@ -7,6 +7,7 @@ Reusable Bicep template that lets any developer stand up an Azure App Service
 
 | Resource | Name pattern | Notes |
 |---|---|---|
+| Resource group | `resourceGroupName` param | Created if it doesn't exist, in `location` |
 | App Service Plan | `asp-<appName>-<env>` | Skipped if `existingAppServicePlanId` is set |
 | Web App | `app-<appName>-<env>-<unique>` | System-assigned managed identity, HTTPS only, TLS 1.2+, FTPS disabled |
 | Log Analytics workspace | `log-<appName>-<env>` | If `enableMonitoring = true` |
@@ -32,53 +33,59 @@ app-service/
 ## Prerequisites
 
 - [Azure CLI](https://aka.ms/azure-cli) 2.53+ (includes Bicep; run `az bicep upgrade` to update)
-- Contributor rights on the target subscription / resource group
+- Contributor rights on the target subscription (the template deploys at subscription scope so it can create the resource group)
 
 ## Quick start
 
-1. Copy a parameters file and edit it for your app:
+1. Copy a parameters file and edit it for your app, including the target resource group and region:
 
    ```bash
    cp parameters/dev.bicepparam parameters/myapp-dev.bicepparam
    ```
 
+   ```bicep
+   param resourceGroupName = 'rg-myapp-dev'
+   param location = 'eastus'
+   ```
+
 2. Preview the changes:
 
    ```bash
-   ./scripts/deploy.sh -g rg-myapp-dev -l eastus -p parameters/myapp-dev.bicepparam --what-if
+   ./scripts/deploy.sh -p parameters/myapp-dev.bicepparam --what-if
    ```
 
 3. Deploy:
 
    ```bash
-   ./scripts/deploy.sh -g rg-myapp-dev -l eastus -p parameters/myapp-dev.bicepparam
+   ./scripts/deploy.sh -p parameters/myapp-dev.bicepparam
    ```
 
    PowerShell:
 
    ```powershell
-   ./scripts/deploy.ps1 -ResourceGroup rg-myapp-dev -Location eastus -ParametersFile parameters/myapp-dev.bicepparam
+   ./scripts/deploy.ps1 -ParametersFile parameters/myapp-dev.bicepparam
    ```
 
-   Or directly with the Azure CLI:
+   The scripts read `resourceGroupName` and `location` from the parameters file (the Bash script needs `jq`).
+   Or deploy directly with the Azure CLI. `-l` is where Azure stores the deployment record; use the same region:
 
    ```bash
-   az group create -n rg-myapp-dev -l eastus
-   az deployment group create -g rg-myapp-dev -f main.bicep -p parameters/myapp-dev.bicepparam
+   az deployment sub create -l eastus -f main.bicep -p parameters/myapp-dev.bicepparam
    ```
 
    You can override any value on the command line, e.g. `-p parameters/dev.bicepparam -p skuName=S1`
    (requires a recent Azure CLI).
 
-The deployment prints the web app name, URL and managed identity principal ID.
+The deployment prints the resource group, web app name, URL and managed identity principal ID.
 
 ## Parameters
 
 | Parameter | Default | Description |
 |---|---|---|
+| `resourceGroupName` | *(required)* | Resource group to create or update |
+| `location` | *(required)* | Azure region for the resource group and all resources |
 | `appName` | *(required)* | Short name (2–20 chars) used in resource names |
 | `environment` | `dev` | `dev`, `test`, `uat`, `prod` |
-| `location` | RG location | Azure region |
 | `webAppName` | auto | Override the globally unique web app name |
 | `tags` | `{}` | Extra tags (merged with `application`, `environment`, `managedBy`) |
 | `osType` | `Linux` | `Linux` or `Windows` |
@@ -158,12 +165,12 @@ The workflow signs in to Azure with OpenID Connect (OIDC), so no client secret i
    done
    ```
 
-3. **Grant access.** Give *Contributor* on each target resource group (create them first), or on the
-   subscription if the workflow should create resource groups itself:
+3. **Grant access.** The template deploys at subscription scope and creates the resource group,
+   so the identity needs *Contributor* on the subscription:
 
    ```bash
    az role assignment create --assignee "$APP_ID" --role Contributor \
-     --scope /subscriptions/<subscription-id>/resourceGroups/rg-myapp-dev
+     --scope /subscriptions/<subscription-id>
    ```
 
 4. **Create GitHub environments** `dev` and `prod` (*Settings → Environments*) and add to each:
@@ -173,8 +180,9 @@ The workflow signs in to Azure with OpenID Connect (OIDC), so no client secret i
    | Secret | `AZURE_CLIENT_ID` | `$APP_ID` |
    | Secret | `AZURE_TENANT_ID` | `az account show --query tenantId -o tsv` |
    | Secret | `AZURE_SUBSCRIPTION_ID` | `az account show --query id -o tsv` |
-   | Variable | `AZURE_RESOURCE_GROUP` | e.g. `rg-myapp-dev` |
-   | Variable | `AZURE_LOCATION` | e.g. `eastus` (used only if the workflow creates the resource group) |
+
+   The resource group and region come from `resourceGroupName` and `location` in
+   `parameters/<environment>.bicepparam`; no GitHub variables are needed.
 
    Add *Required reviewers* to `prod` so production deploys wait for approval.
 

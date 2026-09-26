@@ -63,6 +63,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read resource group and location from parameters file
+        id: params
+        env:
+          PARAMS_FILE: parameters/${{ github.event.inputs.environment || 'dev' }}.bicepparam
+        run: |
+          az bicep build-params --file "$PARAMS_FILE" --outfile params.json
+          rg=$(jq -r '.parameters.resourceGroupName.value // empty' params.json)
+          location=$(jq -r '.parameters.location.value // empty' params.json)
+          : "${rg:?resourceGroupName is not set in $PARAMS_FILE}"
+          : "${location:?location is not set in $PARAMS_FILE}"
+          echo "resourceGroup=$rg" >> "$GITHUB_OUTPUT"
+          echo "location=$location" >> "$GITHUB_OUTPUT"
+
       - uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -71,21 +84,17 @@ jobs:
 
       - name: Run what-if
         env:
-          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          RESOURCE_GROUP: ${{ steps.params.outputs.resourceGroup }}
+          LOCATION: ${{ steps.params.outputs.location }}
           PARAMS_FILE: parameters/${{ github.event.inputs.environment || 'dev' }}.bicepparam
         run: |
-          : "${RESOURCE_GROUP:?Set the AZURE_RESOURCE_GROUP variable on this GitHub environment}"
-          if [[ "$(az group exists --name "$RESOURCE_GROUP")" != "true" ]]; then
-            echo "::notice::Resource group $RESOURCE_GROUP does not exist yet; everything will be created on deploy."
-            exit 0
-          fi
-          az deployment group what-if \
-            --resource-group "$RESOURCE_GROUP" \
+          az deployment sub what-if \
+            --location "$LOCATION" \
             --template-file main.bicep \
             --parameters "$PARAMS_FILE" \
             | sed 's/\x1b\[[0-9;]*m//g' | tee whatif.txt
           {
-            echo "### What-if: \`$RESOURCE_GROUP\`"
+            echo "### What-if: \`$RESOURCE_GROUP\` ($LOCATION)"
             echo '```'
             cat whatif.txt
             echo '```'
@@ -105,42 +114,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read resource group and location from parameters file
+        id: params
+        env:
+          PARAMS_FILE: parameters/${{ github.event.inputs.environment || 'dev' }}.bicepparam
+        run: |
+          az bicep build-params --file "$PARAMS_FILE" --outfile params.json
+          rg=$(jq -r '.parameters.resourceGroupName.value // empty' params.json)
+          location=$(jq -r '.parameters.location.value // empty' params.json)
+          : "${rg:?resourceGroupName is not set in $PARAMS_FILE}"
+          : "${location:?location is not set in $PARAMS_FILE}"
+          echo "resourceGroup=$rg" >> "$GITHUB_OUTPUT"
+          echo "location=$location" >> "$GITHUB_OUTPUT"
+
       - uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Ensure resource group exists
-        env:
-          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-          LOCATION: ${{ vars.AZURE_LOCATION }}
-        run: |
-          : "${RESOURCE_GROUP:?Set the AZURE_RESOURCE_GROUP variable on this GitHub environment}"
-          if [[ "$(az group exists --name "$RESOURCE_GROUP")" != "true" ]]; then
-            : "${LOCATION:?Set the AZURE_LOCATION variable to create the resource group}"
-            az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
-          fi
-
       - name: Deploy Bicep
         id: deploy
         env:
-          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          LOCATION: ${{ steps.params.outputs.location }}
           PARAMS_FILE: parameters/${{ github.event.inputs.environment || 'dev' }}.bicepparam
         run: |
-          outputs=$(az deployment group create \
-            --resource-group "$RESOURCE_GROUP" \
+          outputs=$(az deployment sub create \
+            --location "$LOCATION" \
             --name "appservice-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --template-file main.bicep \
             --parameters "$PARAMS_FILE" \
             --query properties.outputs --output json)
           echo "$outputs"
+          rg=$(jq -r '.resourceGroupName.value' <<< "$outputs")
           name=$(jq -r '.webAppName.value' <<< "$outputs")
           url=$(jq -r '.webAppUrl.value' <<< "$outputs")
           echo "webAppName=$name" >> "$GITHUB_OUTPUT"
           echo "webAppUrl=$url" >> "$GITHUB_OUTPUT"
           {
-            echo "### Deployed to \`$RESOURCE_GROUP\`"
+            echo "### Deployed to \`$rg\`"
             echo "- Web app: \`$name\`"
             echo "- URL: $url"
           } >> "$GITHUB_STEP_SUMMARY"

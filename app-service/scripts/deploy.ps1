@@ -1,15 +1,14 @@
 <#
 .SYNOPSIS
-  Deploy the App Service Bicep template.
+  Deploy the App Service Bicep template at subscription scope.
+  The resource group name and location are read from the parameters file.
 
 .EXAMPLE
-  ./scripts/deploy.ps1 -ResourceGroup rg-myapp-dev -Location eastus -ParametersFile parameters/dev.bicepparam -WhatIf
+  ./scripts/deploy.ps1 -ParametersFile parameters/dev.bicepparam -WhatIf
 #>
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory)] [string] $ResourceGroup,
   [Parameter(Mandatory)] [string] $ParametersFile,
-  [string] $Location,
   [string] $Subscription,
   [switch] $WhatIf
 )
@@ -27,21 +26,29 @@ if ($LASTEXITCODE -ne 0) { az login | Out-Null }
 if ($Subscription) { az account set --subscription $Subscription }
 Write-Host "Subscription: $(az account show --query name -o tsv)"
 
-if ((az group exists --name $ResourceGroup) -ne 'true') {
-  if (-not $Location) { throw "Resource group '$ResourceGroup' does not exist; pass -Location to create it." }
-  Write-Host "Creating resource group $ResourceGroup in $Location..."
-  az group create --name $ResourceGroup --location $Location --output none
+# Read the resource group and location from the parameters file.
+$paramsJson = New-TemporaryFile
+try {
+  az bicep build-params --file $ParametersFile --outfile $paramsJson.FullName
+  if ($LASTEXITCODE -ne 0) { throw "Failed to build $ParametersFile" }
+  $params = (Get-Content $paramsJson.FullName -Raw | ConvertFrom-Json).parameters
+} finally {
+  Remove-Item $paramsJson.FullName -ErrorAction SilentlyContinue
 }
+$resourceGroup = $params.resourceGroupName.value
+$location = $params.location.value
+if (-not $resourceGroup -or -not $location) { throw "Set resourceGroupName and location in $ParametersFile" }
+Write-Host "Resource group: $resourceGroup ($location)"
 
 $deploymentName = "appservice-$(Get-Date -Format 'yyyyMMddHHmmss')"
 
 if ($WhatIf) {
-  az deployment group what-if --resource-group $ResourceGroup --name $deploymentName `
+  az deployment sub what-if --location $location --name $deploymentName `
     --template-file $template --parameters $ParametersFile
   exit $LASTEXITCODE
 }
 
-az deployment group create --resource-group $ResourceGroup --name $deploymentName `
+az deployment sub create --location $location --name $deploymentName `
   --template-file $template --parameters $ParametersFile `
   --query 'properties.outputs' --output json
 exit $LASTEXITCODE

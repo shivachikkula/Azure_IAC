@@ -1,6 +1,10 @@
 // Example: Node.js on a Windows plan.
 using '../main.bicep'
 
+// Resource group (created if it doesn't exist) and region for all resources
+param resourceGroupName = 'rg-mynodeapp-dev'
+param location = 'eastus'
+
 param appName = 'mynodeapp'
 param environment = 'dev'
 param osType = 'Windows'

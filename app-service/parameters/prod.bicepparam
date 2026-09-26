@@ -1,5 +1,9 @@
 using '../main.bicep'
 
+// Resource group (created if it doesn't exist) and region for all resources
+param resourceGroupName = 'rg-myapp-prod'
+param location = 'eastus'
+
 param appName = 'myapp'
 param environment = 'prod'
 param osType = 'Linux'
