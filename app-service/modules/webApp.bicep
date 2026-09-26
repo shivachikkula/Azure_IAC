@@ -134,6 +134,11 @@ var windowsNodeSettings = (!isLinux && runtimeStack == 'node')
 
 var mergedAppSettings = union(monitoringSettings, windowsNodeSettings, appSettings)
 
+var appSettingsArray = [for setting in items(mergedAppSettings): {
+  name: setting.key
+  value: string(setting.value)
+}]
+
 var siteConfig = union(stackConfig, {
   alwaysOn: alwaysOn
   ftpsState: 'Disabled'
@@ -142,10 +147,7 @@ var siteConfig = union(stackConfig, {
   scmMinTlsVersion: minTlsVersion
   healthCheckPath: empty(healthCheckPath) ? null : healthCheckPath
   vnetRouteAllEnabled: !empty(vnetSubnetId)
-  appSettings: [for setting in items(mergedAppSettings): {
-    name: setting.key
-    value: string(setting.value)
-  }]
+  appSettings: appSettingsArray
 })
 
 resource webApp 'Microsoft.Web/sites@2023-12-01' = {
