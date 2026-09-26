@@ -1,14 +1,24 @@
 # Azure IaC
 
-Reusable Bicep templates for Azure. Every template deploys at subscription scope,
-creates its own resource group, and is driven entirely by a parameters file that also
-names the resource group and region.
+Reusable infrastructure for Azure in **Bicep** and **Terraform**. Teams pick whichever they prefer:
+both deploy the same services (App Service, Angular + .NET API, Function App, Storage account)
+with the same secure defaults, and both use the same GitHub environments and Azure credentials.
 
 ## Requesting services for a project
 
-**Most teams should start in [`projects/`](projects/README.md).** Copy `projects/_example`,
-switch on only the services you need (App Service, Angular + .NET API, Function App,
-Storage account), and open a pull request: you get a what-if preview, and merging deploys it.
+Copy an example project, switch on only the services you need, and open a pull request. You get a
+preview of the changes, and merging deploys them.
+
+| | Bicep | Terraform |
+|---|---|---|
+| Start here | [`projects/`](projects/README.md) | [`terraform/`](terraform/README.md) |
+| Your file | `projects/<project>/dev.bicepparam` | `terraform/projects/<project>/dev.tfvars` |
+| Pull request preview | what-if (**Deploy projects** workflow) | `terraform plan` (**Terraform projects** workflow) |
+| On merge | deploy changed project files | plan + apply changed project files |
+| State | none (Azure is the source of truth) | Azure Storage account (one-time bootstrap) |
+| Switching a service off | leaves its resources in place | deletes its resources |
+
+The rest of this page covers the Bicep side and the shared setup.
 
 ## Standalone templates
 
@@ -25,7 +35,8 @@ by running its workflow manually (merging doesn't deploy these):
 Log Analytics + Application Insights are included (and can be turned off) in the app templates.
 
 ```
-├── projects/                  # Request services per project (start here)
+├── terraform/                 # Terraform option: modules, project root module, projects/
+├── projects/                  # Bicep: request services per project
 │   ├── main.bicep             #   one template with a switch per service
 │   └── _example/              #   copy to projects/<your-project>/
 ├── modules/                   # Shared building blocks used by all templates
@@ -93,6 +104,7 @@ quota for that SKU in that region: change `location` or `skuName`, or request qu
 |---|---|---|---|
 | **Deploy projects** | Validate all project files; what-if each changed one (all of them if `projects/main.bicep` or `modules/` changed) | Deploy each project file changed by the push | Preview or deploy one project + environment |
 | **Deploy &lt;template&gt;** (one per standalone template) | Validate; what-if `dev` | — | Deploy `dev` or `prod`, or preview only |
+| **Terraform projects** | Format check, validate, plan each changed project file | Plan + apply each changed project file | Plan or apply one project + environment |
 
 Both use the shared [`_bicep-deploy.yml`](.github/workflows/_bicep-deploy.yml). A project's
 `dev.bicepparam` deploys with the `dev` GitHub environment's credentials, `prod.bicepparam` with `prod`'s.

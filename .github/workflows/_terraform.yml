@@ -1,0 +1,90 @@
+# Reusable workflow: terraform plan (and optionally apply) for one project + environment.
+# Uses the root module in terraform/project with terraform/projects/<project>/<environment>.tfvars.
+# State: the storage account in terraform/backend.hcl, key <project>/<environment>.tfstate.
+# Azure sign-in: OIDC with the GitHub environment's AZURE_* secrets (same as the Bicep workflows).
+name: Terraform (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: 'Project folder under terraform/projects/'
+        type: string
+        required: true
+      environment:
+        description: 'Environment: tfvars file name and GitHub environment (dev, prod, ...)'
+        type: string
+        required: true
+      apply:
+        description: 'Apply the plan after creating it'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write # OIDC login to Azure
+
+jobs:
+  terraform:
+    name: ${{ inputs.apply && 'Apply' || 'Plan' }} (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    # One run at a time per state file (the backend also locks the state)
+    concurrency:
+      group: terraform-${{ inputs.project }}-${{ inputs.environment }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+        working-directory: terraform/project
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: 'true'
+      TF_IN_AUTOMATION: 'true'
+      TF_INPUT: 'false'
+      PROJECT: ${{ inputs.project }}
+      ENVIRONMENT: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '~1.16'
+          terraform_wrapper: false
+
+      - name: Check backend configuration
+        run: |
+          if [[ ! -f ../backend.hcl ]]; then
+            echo "::error::terraform/backend.hcl is missing. Run terraform/bootstrap/create-state-storage.sh once and commit the file it writes."
+            exit 1
+          fi
+
+      - name: Terraform init
+        run: terraform init -backend-config=../backend.hcl -backend-config="key=${PROJECT}/${ENVIRONMENT}.tfstate"
+
+      - name: Terraform plan
+        run: |
+          terraform plan -no-color -var-file="../projects/${PROJECT}/${ENVIRONMENT}.tfvars" -out=tfplan | tee "$RUNNER_TEMP/plan.txt"
+          {
+            echo "### Terraform plan: \`terraform/projects/${PROJECT}/${ENVIRONMENT}.tfvars\`"
+            grep -E '^(Plan:|No changes\.)' "$RUNNER_TEMP/plan.txt" || true
+            echo '<details><summary>Full plan</summary>'
+            echo
+            echo '```'
+            sed -n '/Terraform will perform/,$p' "$RUNNER_TEMP/plan.txt"
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Terraform apply
+        if: inputs.apply
+        run: |
+          terraform apply -no-color tfplan
+          {
+            echo "### Applied \`terraform/projects/${PROJECT}/${ENVIRONMENT}.tfvars\`"
+            echo '| Output | Value |'
+            echo '|---|---|'
+            terraform output -json | jq -r 'to_entries[] | select(.value.value != null) | "| \(.key) | `\(.value.value)` |"'
+          } >> "$GITHUB_STEP_SUMMARY"
