@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Print a JSON array of project parameter files to preview or deploy, for the deploy-projects
+# (Bicep) and terraform-projects workflow matrices:
+#   [{"project":"orders","environment":"dev","parametersFile":"projects/orders/dev.bicepparam"}]
+#
+# Usage:
+#   scripts/changed-projects.sh pr       <base-sha> <head-sha>   # changed project files; all projects if shared code changed
+#   scripts/changed-projects.sh push     <before-sha> <after-sha> # changed project files only
+#   scripts/changed-projects.sh dispatch <project> <environment>  # one project file
+#
+# Only files named <environment>.<EXT> for an environment in ENVIRONMENTS are included,
+# and folders starting with "_" (examples) are skipped.
+#
+# Environment variables (defaults are for the Bicep projects):
+#   PROJECTS_DIR    folder holding one subfolder per project   (projects)
+#   EXT             parameters file extension                   (bicepparam)
+#   SHARED_PATTERN  regex of paths whose change affects every project on pull requests
+#   ENVIRONMENTS    environments that may be previewed/deployed (dev prod)
+set -euo pipefail
+
+PROJECTS_DIR="${PROJECTS_DIR:-projects}"
+EXT="${EXT:-bicepparam}"
+ENVIRONMENTS="${ENVIRONMENTS:-dev prod}"
+mode="${1:?mode: pr, push or dispatch}"
+
+# Files whose change affects every project (previewed on pull requests)
+shared_pattern="${SHARED_PATTERN:-^(projects/main\.bicep|modules/|\.github/workflows/(deploy-projects|_bicep-deploy)\.yml|scripts/changed-projects\.sh)}"
+project_pattern="^${PROJECTS_DIR//./\\.}/[^/]+/[^/]+\\.${EXT}\$"
+
+case "$mode" in
+  dispatch)
+    candidates="$PROJECTS_DIR/${2:?project}/${3:?environment}.$EXT"
+    [[ -f "$candidates" ]] || { echo "Parameters file not found: $candidates" >&2; exit 1; }
+    ;;
+  pr|push)
+    base="${2:?base sha}"; head="${3:?head sha}"
+    if [[ "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+      echo "Base commit $base not available; nothing to do" >&2
+      echo '[]'; exit 0
+    fi
+    if [[ "$mode" == pr ]]; then
+      changed=$(git diff --name-only "$base...$head")
+    else
+      changed=$(git diff --name-only "$base" "$head")
+    fi
+    if [[ "$mode" == pr ]] && grep -Eq "$shared_pattern" <<< "$changed"; then
+      candidates=$(git ls-files "$PROJECTS_DIR/*/*.$EXT")
+    else
+      candidates=$(grep -E "$project_pattern" <<< "$changed" || true)
+    fi
+    ;;
+  *)
+    echo "Unknown mode: $mode" >&2; exit 1 ;;
+esac
+
+for f in $candidates; do
+  [[ -f "$f" ]] || continue                        # deleted in this change
+  project=$(basename "$(dirname "$f")")
+  env=$(basename "$f" ".$EXT")
+  [[ "$project" == _* ]] && continue               # examples are validated, never deployed
+  [[ " $ENVIRONMENTS " == *" $env "* ]] || { echo "Skipping $f: '$env' is not one of: $ENVIRONMENTS" >&2; continue; }
+  jq -cn --arg p "$project" --arg e "$env" --arg f "$f" '{project: $p, environment: $e, parametersFile: $f}'
+done | jq -cs '.'

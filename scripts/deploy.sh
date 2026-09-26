@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-# Deploy the App Service Bicep template at subscription scope.
-# The resource group name and location are read from the parameters file.
+# Deploy any template in this repo at subscription scope.
+# The template comes from the parameters file's "using" line; the resource group
+# name and location are read from its resourceGroupName and location parameters.
 #
 # Usage:
 #   ./scripts/deploy.sh -p <params-file> [-s <subscription>] [--what-if]
 #
 # Example:
-#   ./scripts/deploy.sh -p parameters/dev.bicepparam --what-if
+#   ./scripts/deploy.sh -p storage-account/parameters/dev.bicepparam --what-if
 set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEMPLATE="${SCRIPT_DIR}/../main.bicep"
 
 PARAMS_FILE=""
 SUBSCRIPTION=""
@@ -34,6 +32,12 @@ done
 [[ -z "$PARAMS_FILE" ]] && usage
 [[ -f "$PARAMS_FILE" ]] || { echo "Parameters file not found: $PARAMS_FILE" >&2; exit 1; }
 
+# Resolve the template from the parameters file's "using '<path>'" line (relative to the file).
+USING=$(sed -nE "s/^using '([^']+)'.*/\1/p" "$PARAMS_FILE" | head -n 1)
+[[ -n "$USING" ]] || { echo "No \"using '<template>'\" line in $PARAMS_FILE" >&2; exit 1; }
+TEMPLATE="$(cd "$(dirname "$PARAMS_FILE")" && cd "$(dirname "$USING")" && pwd)/$(basename "$USING")"
+[[ -f "$TEMPLATE" ]] || { echo "Template not found: $TEMPLATE" >&2; exit 1; }
+
 command -v az >/dev/null || { echo "Azure CLI (az) is required: https://aka.ms/azure-cli" >&2; exit 1; }
 command -v jq >/dev/null || { echo "jq is required: https://jqlang.github.io/jq/" >&2; exit 1; }
 az account show >/dev/null 2>&1 || az login >/dev/null
@@ -50,9 +54,10 @@ az bicep build-params --file "$PARAMS_FILE" --outfile "$PARAMS_JSON"
 RESOURCE_GROUP=$(jq -r '.parameters.resourceGroupName.value // empty' "$PARAMS_JSON")
 LOCATION=$(jq -r '.parameters.location.value // empty' "$PARAMS_JSON")
 [[ -n "$RESOURCE_GROUP" && -n "$LOCATION" ]] || { echo "Set resourceGroupName and location in $PARAMS_FILE" >&2; exit 1; }
+echo "Template: $TEMPLATE"
 echo "Resource group: $RESOURCE_GROUP ($LOCATION)"
 
-DEPLOYMENT_NAME="appservice-$(date +%Y%m%d%H%M%S)"
+DEPLOYMENT_NAME="$(basename "$(dirname "$TEMPLATE")")-$(date +%Y%m%d%H%M%S)"
 
 if $WHAT_IF; then
   az deployment sub what-if \

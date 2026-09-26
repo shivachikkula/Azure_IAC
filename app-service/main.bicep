@@ -18,6 +18,9 @@ param resourceGroupName string
 @description('Azure region for the resource group and all resources.')
 param location string
 
+@description('Region of the resource group itself. Empty means the same as location. Set it when the resource group already exists in a different region (a resource group cannot be moved).')
+param resourceGroupLocation string = ''
+
 // ---------- Naming ----------
 
 @description('Short application name used to build resource names (letters, numbers, hyphens).')
@@ -119,11 +122,11 @@ var allTags = union({
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: resourceGroupName
-  location: location
+  location: empty(resourceGroupLocation) ? location : resourceGroupLocation
   tags: allTags
 }
 
-module plan 'modules/appServicePlan.bicep' = if (empty(existingAppServicePlanId)) {
+module plan '../modules/appServicePlan.bicep' = if (empty(existingAppServicePlanId)) {
   name: '${deployment().name}-plan'
   scope: rg
   params: {
@@ -137,7 +140,7 @@ module plan 'modules/appServicePlan.bicep' = if (empty(existingAppServicePlanId)
   }
 }
 
-module monitoring 'modules/monitoring.bicep' = if (enableMonitoring) {
+module monitoring '../modules/monitoring.bicep' = if (enableMonitoring) {
   name: '${deployment().name}-monitoring'
   scope: rg
   params: {
@@ -147,7 +150,7 @@ module monitoring 'modules/monitoring.bicep' = if (enableMonitoring) {
   }
 }
 
-module webApp 'modules/webApp.bicep' = {
+module webApp '../modules/webApp.bicep' = {
   name: '${deployment().name}-webapp'
   scope: rg
   params: {

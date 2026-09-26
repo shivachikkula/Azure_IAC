@@ -1,0 +1,9 @@
+# Terraform working files
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+# CI writes this to validate .tfvars files without a real backend
+backend_override.tf

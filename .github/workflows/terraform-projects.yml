@@ -1,0 +1,128 @@
+# Terraform projects: each team requests the services it needs in
+# terraform/projects/<project>/<environment>.tfvars (the Terraform twin of projects/ for Bicep).
+# - Pull request: format check, validate the modules and every .tfvars file, then plan each
+#   changed project file (every project, if terraform/project or terraform/modules changed).
+# - Push to main: plan + apply each project file changed by the push.
+# - Manual run: plan or apply one project file.
+# Folders starting with "_" (examples) are validated but never planned or applied.
+name: Terraform projects
+
+on:
+  pull_request:
+    paths:
+      - 'terraform/**'
+      - 'scripts/changed-projects.sh'
+      - '.github/workflows/terraform-projects.yml'
+      - '.github/workflows/_terraform.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/projects/**'
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Project folder name under terraform/projects/'
+        type: string
+        required: true
+      environment:
+        description: 'Environment (uses terraform/projects/<project>/<environment>.tfvars)'
+        type: choice
+        options: [dev, prod]
+        default: dev
+      apply:
+        description: 'Apply the plan (unticked: plan only)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write # OIDC login to Azure
+
+jobs:
+  check:
+    name: Format, validate and find project files
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.find.outputs.matrix }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '~1.16'
+          terraform_wrapper: false
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive -diff terraform
+
+      - name: Validate modules
+        run: |
+          for dir in terraform/project terraform/modules/*/; do
+            echo "Validating $dir"
+            terraform -chdir="$dir" init -backend=false -input=false > /dev/null
+            terraform -chdir="$dir" validate
+          done
+
+      - name: Validate every project .tfvars file
+        run: |
+          # A local backend lets terraform load the variables without Azure credentials
+          printf 'terraform {\n  backend "local" {}\n}\n' > terraform/project/backend_override.tf
+          terraform -chdir=terraform/project init -input=false -reconfigure > /dev/null
+          failed=0
+          for f in terraform/projects/*/*.tfvars; do
+            echo "Checking $f"
+            # terraform console exits 0 even when variables are invalid, so check its output
+            out=$(echo 'var.project_name' | terraform -chdir=terraform/project console -no-color -var-file="../../$f" 2>&1) || true
+            if grep -q 'Error:' <<< "$out"; then
+              echo "::error file=$f::Invalid .tfvars file"
+              echo "$out"
+              failed=1
+            fi
+          done
+          rm terraform/project/backend_override.tf
+          exit "$failed"
+
+      - name: List project files to plan or apply
+        id: find
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+          PROJECT: ${{ inputs.project }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          PROJECTS_DIR: terraform/projects
+          EXT: tfvars
+          SHARED_PATTERN: '^(terraform/(project|modules)/|terraform/backend\.hcl|\.github/workflows/(terraform-projects|_terraform)\.yml|scripts/changed-projects\.sh)'
+        run: |
+          case "$EVENT" in
+            pull_request)      matrix=$(scripts/changed-projects.sh pr "$PR_BASE" "$PR_HEAD") ;;
+            push)              matrix=$(scripts/changed-projects.sh push "$PUSH_BEFORE" "$PUSH_AFTER") ;;
+            workflow_dispatch) matrix=$(scripts/changed-projects.sh dispatch "$PROJECT" "$ENVIRONMENT") ;;
+          esac
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Project files for this run"
+            jq -r 'if length == 0 then "_None: nothing to plan or apply._" else .[] | "- `\(.parametersFile)` → \(.environment)" end' <<< "$matrix"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  project:
+    name: ${{ matrix.project }} (${{ matrix.environment }})
+    needs: check
+    if: needs.check.outputs.matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.check.outputs.matrix) }}
+    uses: ./.github/workflows/_terraform.yml
+    with:
+      project: ${{ matrix.project }}
+      environment: ${{ matrix.environment }}
+      apply: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.apply) }}
+    secrets: inherit

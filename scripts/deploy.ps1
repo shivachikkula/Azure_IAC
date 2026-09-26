@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-  Deploy the App Service Bicep template at subscription scope.
-  The resource group name and location are read from the parameters file.
+  Deploy any template in this repo at subscription scope.
+  The template comes from the parameters file's "using" line; the resource group
+  name and location are read from its resourceGroupName and location parameters.
 
 .EXAMPLE
-  ./scripts/deploy.ps1 -ParametersFile parameters/dev.bicepparam -WhatIf
+  ./scripts/deploy.ps1 -ParametersFile storage-account/parameters/dev.bicepparam -WhatIf
 #>
 [CmdletBinding()]
 param(
@@ -14,12 +15,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$template = Join-Path $PSScriptRoot '..' 'main.bicep'
 
 if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
   throw 'Azure CLI (az) is required: https://aka.ms/azure-cli'
 }
 if (-not (Test-Path $ParametersFile)) { throw "Parameters file not found: $ParametersFile" }
+
+# Resolve the template from the parameters file's "using '<path>'" line (relative to the file).
+$using = Select-String -Path $ParametersFile -Pattern "^using '([^']+)'" | Select-Object -First 1
+if (-not $using) { throw "No ""using '<template>'"" line in $ParametersFile" }
+$paramsDir = Split-Path -Parent (Resolve-Path $ParametersFile)
+$template = [System.IO.Path]::GetFullPath((Join-Path $paramsDir $using.Matches[0].Groups[1].Value))
+if (-not (Test-Path $template)) { throw "Template not found: $template" }
 
 az account show 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) { az login | Out-Null }
@@ -38,9 +45,10 @@ try {
 $resourceGroup = $params.resourceGroupName.value
 $location = $params.location.value
 if (-not $resourceGroup -or -not $location) { throw "Set resourceGroupName and location in $ParametersFile" }
+Write-Host "Template: $template"
 Write-Host "Resource group: $resourceGroup ($location)"
 
-$deploymentName = "appservice-$(Get-Date -Format 'yyyyMMddHHmmss')"
+$deploymentName = "$(Split-Path -Leaf (Split-Path -Parent $template))-$(Get-Date -Format 'yyyyMMddHHmmss')"
 
 if ($WhatIf) {
   az deployment sub what-if --location $location --name $deploymentName `

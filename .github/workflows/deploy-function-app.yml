@@ -1,19 +1,19 @@
-# Standalone App Service template. Pull requests validate it and preview dev; deploy it by running
-# this workflow manually (Actions → Deploy App Service → Run workflow). Merging does not deploy it:
+# Standalone Function App template. Pull requests validate it and preview dev; deploy it by running
+# this workflow manually (Actions → Deploy Function App → Run workflow). Merging does not deploy it:
 # teams request services through projects/ instead.
-name: Deploy App Service
+name: Deploy Function App
 
 on:
   pull_request:
     paths:
-      - 'app-service/**'
+      - 'function-app/**'
       - 'modules/**'
-      - '.github/workflows/deploy-app-service.yml'
+      - '.github/workflows/deploy-function-app.yml'
       - '.github/workflows/_bicep-deploy.yml'
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target environment (uses app-service/parameters/<environment>.bicepparam)'
+        description: 'Target environment (uses function-app/parameters/<environment>.bicepparam)'
         type: choice
         options: [dev, prod]
         default: dev
@@ -34,8 +34,8 @@ jobs:
   bicep:
     uses: ./.github/workflows/_bicep-deploy.yml
     with:
-      template-file: app-service/main.bicep
-      parameters-file: app-service/parameters/${{ inputs.environment || 'dev' }}.bicepparam
+      template-file: function-app/main.bicep
+      parameters-file: function-app/parameters/${{ inputs.environment || 'dev' }}.bicepparam
       environment: ${{ inputs.environment || 'dev' }}
       what-if-only: ${{ inputs.whatIfOnly || false }}
     secrets: inherit
