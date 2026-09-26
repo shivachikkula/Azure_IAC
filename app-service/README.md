@@ -1,0 +1,139 @@
+# Azure App Service – generic Bicep template
+
+Reusable Bicep template that lets any developer stand up an Azure App Service
+(web app) with sensible, secure defaults by editing a single parameters file.
+
+## What gets deployed
+
+| Resource | Name pattern | Notes |
+|---|---|---|
+| App Service Plan | `asp-<appName>-<env>` | Skipped if `existingAppServicePlanId` is set |
+| Web App | `app-<appName>-<env>-<unique>` | System-assigned managed identity, HTTPS only, TLS 1.2+, FTPS disabled |
+| Log Analytics workspace | `log-<appName>-<env>` | If `enableMonitoring = true` |
+| Application Insights | `appi-<appName>-<env>` | Wired to the app via `APPLICATIONINSIGHTS_CONNECTION_STRING` |
+| Staging slot | `<webapp>/staging` | If `createStagingSlot = true` (Standard tier or above) |
+
+```
+app-service/
+├── main.bicep                     # Entry point
+├── modules/
+│   ├── appServicePlan.bicep
+│   ├── webApp.bicep
+│   └── monitoring.bicep
+├── parameters/
+│   ├── dev.bicepparam
+│   ├── prod.bicepparam
+│   └── node-windows.example.bicepparam
+└── scripts/
+    ├── deploy.sh                  # Bash
+    └── deploy.ps1                 # PowerShell 7+
+```
+
+## Prerequisites
+
+- [Azure CLI](https://aka.ms/azure-cli) 2.53+ (includes Bicep; run `az bicep upgrade` to update)
+- Contributor rights on the target subscription / resource group
+
+## Quick start
+
+1. Copy a parameters file and edit it for your app:
+
+   ```bash
+   cp parameters/dev.bicepparam parameters/myapp-dev.bicepparam
+   ```
+
+2. Preview the changes:
+
+   ```bash
+   ./scripts/deploy.sh -g rg-myapp-dev -l eastus -p parameters/myapp-dev.bicepparam --what-if
+   ```
+
+3. Deploy:
+
+   ```bash
+   ./scripts/deploy.sh -g rg-myapp-dev -l eastus -p parameters/myapp-dev.bicepparam
+   ```
+
+   PowerShell:
+
+   ```powershell
+   ./scripts/deploy.ps1 -ResourceGroup rg-myapp-dev -Location eastus -ParametersFile parameters/myapp-dev.bicepparam
+   ```
+
+   Or directly with the Azure CLI:
+
+   ```bash
+   az group create -n rg-myapp-dev -l eastus
+   az deployment group create -g rg-myapp-dev -f main.bicep -p parameters/myapp-dev.bicepparam
+   ```
+
+   You can override any value on the command line, e.g. `-p parameters/dev.bicepparam -p skuName=S1`
+   (requires a recent Azure CLI).
+
+The deployment prints the web app name, URL and managed identity principal ID.
+
+## Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `appName` | *(required)* | Short name (2–20 chars) used in resource names |
+| `environment` | `dev` | `dev`, `test`, `uat`, `prod` |
+| `location` | RG location | Azure region |
+| `webAppName` | auto | Override the globally unique web app name |
+| `tags` | `{}` | Extra tags (merged with `application`, `environment`, `managedBy`) |
+| `osType` | `Linux` | `Linux` or `Windows` |
+| `skuName` | `B1` | `F1`, `B1`, `S1`, `P0v3`, `P1v3`, … |
+| `instanceCount` | `1` | Number of plan instances |
+| `zoneRedundant` | `false` | Premium v3 with `instanceCount >= 3` |
+| `existingAppServicePlanId` | `''` | Reuse an existing plan instead of creating one |
+| `runtimeStack` | `dotnet` | `dotnet`, `node`, `python`, `java`, `php` |
+| `runtimeVersion` | `8.0` | See table below |
+| `startupCommand` | `''` | Custom startup command (Linux) |
+| `healthCheckPath` | `''` | e.g. `/health` |
+| `appSettings` | `{}` | Environment variables for the app |
+| `enableMonitoring` | `true` | Deploy Log Analytics + Application Insights |
+| `createStagingSlot` | `false` | Create a `staging` deployment slot |
+| `vnetSubnetId` | `''` | Subnet (delegated to `Microsoft.Web/serverFarms`) for VNet integration |
+
+`alwaysOn` is enabled automatically except on Free/Shared (`F*`/`D*`) SKUs, where it isn't supported.
+
+### Runtime versions
+
+| Stack | Linux `runtimeVersion` | Windows `runtimeVersion` |
+|---|---|---|
+| dotnet | `8.0`, `9.0` | `8.0`, `9.0` |
+| node | `20-lts`, `22-lts` | `~20`, `~22` |
+| python | `3.11`, `3.12` | *not supported on Windows* |
+| java | `17-java17`, `21-java21` | `17`, `21` |
+| php | `8.2`, `8.3` | *Linux recommended* |
+
+List what your region supports: `az webapp list-runtimes --os linux` (or `--os windows`).
+
+## Secrets
+
+Don't put secrets in `appSettings`. Store them in Key Vault, grant the web app's
+managed identity (`webAppPrincipalId` output) *Key Vault Secrets User*, and use a
+Key Vault reference as the value:
+
+```bicep
+param appSettings = {
+  DB_PASSWORD: '@Microsoft.KeyVault(SecretUri=https://kv-myapp.vault.azure.net/secrets/db-password/)'
+}
+```
+
+## Deploying your code
+
+This template provisions infrastructure only. Deploy code afterwards with e.g.:
+
+```bash
+az webapp deploy -g rg-myapp-dev -n <webAppName> --src-path app.zip --type zip
+```
+
+or the `azure/webapps-deploy` GitHub Action.
+
+## Validate locally
+
+```bash
+az bicep build --file main.bicep          # compile / lint
+az bicep build-params --file parameters/dev.bicepparam
+```
