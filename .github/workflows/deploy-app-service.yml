@@ -32,6 +32,8 @@ concurrency:
 
 defaults:
   run:
+    # Explicit bash enables pipefail, so a failing az command piped into tee fails the step.
+    shell: bash
     working-directory: app-service
 
 jobs:
