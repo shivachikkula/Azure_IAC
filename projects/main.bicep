@@ -78,7 +78,7 @@ type appServicePlanSettings = {
 @description('Web app settings.')
 type appServiceSettings = {
   @description('dotnet (default), node, python, java or php.')
-  runtimeStack: string?
+  runtimeStack: ('dotnet' | 'node' | 'python' | 'java' | 'php')?
 
   @description('Runtime version, e.g. dotnet "8.0" (default), node "20-lts", python "3.12", java "17-java17", php "8.3".')
   runtimeVersion: string?
@@ -117,13 +117,13 @@ type webAngularApiSettings = {
 @description('Function app settings.')
 type functionAppSettings = {
   @description('dotnet-isolated (default), node, python, java or powershell.')
-  runtimeName: string?
+  runtimeName: ('dotnet-isolated' | 'node' | 'python' | 'java' | 'powershell')?
 
   @description('Runtime version, e.g. dotnet-isolated "8.0" (default), node "20", python "3.11", java "17", powershell "7.4".')
   runtimeVersion: string?
 
   @description('Memory per instance: 512, 2048 (default) or 4096.')
-  instanceMemoryMB: int?
+  instanceMemoryMB: (512 | 2048 | 4096)?
 
   @description('Scale-out limit, 40-1000 (default 100).')
   maximumInstanceCount: int?
@@ -132,16 +132,16 @@ type functionAppSettings = {
   appSettings: object?
 
   @description('ConnectionString (default) or ManagedIdentity (needs Owner or User Access Administrator on the deploying identity).')
-  storageAuthentication: string?
+  storageAuthentication: ('ConnectionString' | 'ManagedIdentity')?
 }
 
 @description('Data storage account settings.')
 type storageAccountSettings = {
-  @description('Replication SKU, e.g. Standard_LRS (default), Standard_ZRS, Standard_GRS.')
-  skuName: string?
+  @description('Replication SKU: Standard_LRS (default), Standard_ZRS, Standard_GRS, Standard_GZRS, Standard_RAGRS, Standard_RAGZRS, Premium_LRS or Premium_ZRS.')
+  skuName: ('Standard_LRS' | 'Standard_ZRS' | 'Standard_GRS' | 'Standard_GZRS' | 'Standard_RAGRS' | 'Standard_RAGZRS' | 'Premium_LRS' | 'Premium_ZRS')?
 
   @description('Hot (default), Cool or Cold.')
-  accessTier: string?
+  accessTier: ('Hot' | 'Cool' | 'Cold')?
 
   @description('Allow account keys / connection strings (default true).')
   allowSharedKeyAccess: bool?

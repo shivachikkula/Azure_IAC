@@ -67,27 +67,41 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
 
 var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
 
+// Storage and monitoring settings are built as plain arrays (not with a loop) because the
+// connection string uses listKeys(), which is only known during deployment.
 var storageSettings = useIdentity
-  ? {
-      AzureWebJobsStorage__accountName: storage.name
-    }
-  : {
-      AzureWebJobsStorage: storageConnectionString
-      DEPLOYMENT_STORAGE_CONNECTION_STRING: storageConnectionString
-    }
+  ? [
+      {
+        name: 'AzureWebJobsStorage__accountName'
+        value: storage.name
+      }
+    ]
+  : [
+      {
+        name: 'AzureWebJobsStorage'
+        value: storageConnectionString
+      }
+      {
+        name: 'DEPLOYMENT_STORAGE_CONNECTION_STRING'
+        value: storageConnectionString
+      }
+    ]
 
 var monitoringSettings = empty(appInsightsConnectionString)
-  ? {}
-  : {
-      APPLICATIONINSIGHTS_CONNECTION_STRING: appInsightsConnectionString
-    }
+  ? []
+  : [
+      {
+        name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+        value: appInsightsConnectionString
+      }
+    ]
 
-var mergedAppSettings = union(storageSettings, monitoringSettings, appSettings)
-
-var appSettingsArray = [for setting in items(mergedAppSettings): {
+var customSettings = [for setting in items(appSettings): {
   name: setting.key
   value: string(setting.value)
 }]
+
+var appSettingsArray = concat(storageSettings, monitoringSettings, customSettings)
 
 resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
   name: planName
