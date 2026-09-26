@@ -74,6 +74,7 @@ jobs:
           RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
           PARAMS_FILE: parameters/${{ github.event.inputs.environment || 'dev' }}.bicepparam
         run: |
+          : "${RESOURCE_GROUP:?Set the AZURE_RESOURCE_GROUP variable on this GitHub environment}"
           if [[ "$(az group exists --name "$RESOURCE_GROUP")" != "true" ]]; then
             echo "::notice::Resource group $RESOURCE_GROUP does not exist yet; everything will be created on deploy."
             exit 0
@@ -115,6 +116,7 @@ jobs:
           RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
           LOCATION: ${{ vars.AZURE_LOCATION }}
         run: |
+          : "${RESOURCE_GROUP:?Set the AZURE_RESOURCE_GROUP variable on this GitHub environment}"
           if [[ "$(az group exists --name "$RESOURCE_GROUP")" != "true" ]]; then
             : "${LOCATION:?Set the AZURE_LOCATION variable to create the resource group}"
             az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
