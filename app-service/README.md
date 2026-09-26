@@ -133,14 +133,26 @@ The workflow signs in to Azure with OpenID Connect (OIDC), so no client secret i
    az ad sp create --id "$APP_ID"
    ```
 
-2. **Add a federated credential for each GitHub environment** (`dev`, `prod`):
+2. **Add a federated credential for each GitHub environment** (`dev`, `prod`).
+
+   The subject must exactly match the `sub` claim GitHub sends. Newer repositories use a
+   format that includes the owner and repository IDs, e.g.
+   `repo:<owner>@<owner-id>/<repo>@<repo-id>:environment:dev`; older ones use
+   `repo:<owner>/<repo>:environment:dev`. To see which one your repo uses, run the workflow once:
+   the `azure/login` step prints the `subject claim` it presented. You can also build the ID-based
+   prefix with the GitHub CLI:
+
+   ```bash
+   SUBJECT_PREFIX=$(gh api repos/<owner>/<repo> --jq '"repo:\(.owner.login)@\(.owner.id)/\(.name)@\(.id)"')
+   # or, for the legacy format: SUBJECT_PREFIX="repo:<owner>/<repo>"
+   ```
 
    ```bash
    for env in dev prod; do
      az ad app federated-credential create --id "$APP_ID" --parameters "{
        \"name\": \"github-$env\",
        \"issuer\": \"https://token.actions.githubusercontent.com\",
-       \"subject\": \"repo:<owner>/<repo>:environment:$env\",
+       \"subject\": \"$SUBJECT_PREFIX:environment:$env\",
        \"audiences\": [\"api://AzureADTokenExchange\"]
      }"
    done
