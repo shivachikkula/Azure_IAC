@@ -1,14 +1,10 @@
+# Standalone Angular + .NET API template. Pull requests validate it and preview dev; deploy it by running
+# this workflow manually (Actions → Deploy Angular + .NET API → Run workflow). Merging does not deploy it:
+# teams request services through projects/ instead.
 name: Deploy Angular + .NET API
 
 on:
   pull_request:
-    paths:
-      - 'web-angular-api/**'
-      - 'modules/**'
-      - '.github/workflows/deploy-web-angular-api.yml'
-      - '.github/workflows/_bicep-deploy.yml'
-  push:
-    branches: [main]
     paths:
       - 'web-angular-api/**'
       - 'modules/**'
@@ -38,7 +34,8 @@ jobs:
   bicep:
     uses: ./.github/workflows/_bicep-deploy.yml
     with:
-      template-dir: web-angular-api
+      template-file: web-angular-api/main.bicep
+      parameters-file: web-angular-api/parameters/${{ inputs.environment || 'dev' }}.bicepparam
       environment: ${{ inputs.environment || 'dev' }}
       what-if-only: ${{ inputs.whatIfOnly || false }}
     secrets: inherit

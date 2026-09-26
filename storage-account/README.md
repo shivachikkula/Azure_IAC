@@ -26,6 +26,7 @@ See the [root README](../README.md) for deploy scripts and the GitHub Actions se
 |---|---|---|
 | `resourceGroupName` | *(required)* | Resource group to create or update |
 | `location` | *(required)* | Azure region |
+| `resourceGroupLocation` | same as `location` | Set only if the resource group already exists in another region |
 | `appName` | *(required)* | Short name (2–10 chars) used in the account name |
 | `environment` | `dev` | `dev`, `test`, `uat`, `prod` |
 | `storageAccountName` | auto | Override the globally unique account name (3–24 lowercase letters/numbers) |

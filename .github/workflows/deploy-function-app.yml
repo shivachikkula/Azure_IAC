@@ -1,14 +1,10 @@
+# Standalone Function App template. Pull requests validate it and preview dev; deploy it by running
+# this workflow manually (Actions → Deploy Function App → Run workflow). Merging does not deploy it:
+# teams request services through projects/ instead.
 name: Deploy Function App
 
 on:
   pull_request:
-    paths:
-      - 'function-app/**'
-      - 'modules/**'
-      - '.github/workflows/deploy-function-app.yml'
-      - '.github/workflows/_bicep-deploy.yml'
-  push:
-    branches: [main]
     paths:
       - 'function-app/**'
       - 'modules/**'
@@ -38,7 +34,8 @@ jobs:
   bicep:
     uses: ./.github/workflows/_bicep-deploy.yml
     with:
-      template-dir: function-app
+      template-file: function-app/main.bicep
+      parameters-file: function-app/parameters/${{ inputs.environment || 'dev' }}.bicepparam
       environment: ${{ inputs.environment || 'dev' }}
       what-if-only: ${{ inputs.whatIfOnly || false }}
     secrets: inherit

@@ -1,14 +1,10 @@
+# Standalone App Service template. Pull requests validate it and preview dev; deploy it by running
+# this workflow manually (Actions → Deploy App Service → Run workflow). Merging does not deploy it:
+# teams request services through projects/ instead.
 name: Deploy App Service
 
 on:
   pull_request:
-    paths:
-      - 'app-service/**'
-      - 'modules/**'
-      - '.github/workflows/deploy-app-service.yml'
-      - '.github/workflows/_bicep-deploy.yml'
-  push:
-    branches: [main]
     paths:
       - 'app-service/**'
       - 'modules/**'
@@ -38,7 +34,8 @@ jobs:
   bicep:
     uses: ./.github/workflows/_bicep-deploy.yml
     with:
-      template-dir: app-service
+      template-file: app-service/main.bicep
+      parameters-file: app-service/parameters/${{ inputs.environment || 'dev' }}.bicepparam
       environment: ${{ inputs.environment || 'dev' }}
       what-if-only: ${{ inputs.whatIfOnly || false }}
     secrets: inherit

@@ -26,6 +26,7 @@ Deploy it with the shared scripts or workflow; see the [root README](../README.m
 |---|---|---|
 | `resourceGroupName` | *(required)* | Resource group to create or update |
 | `location` | *(required)* | Azure region for the resource group and all resources |
+| `resourceGroupLocation` | same as `location` | Set only if the resource group already exists in another region |
 | `appName` | *(required)* | Short name (2–20 chars) used in resource names |
 | `environment` | `dev` | `dev`, `test`, `uat`, `prod` |
 | `webAppName` | auto | Override the globally unique web app name |

@@ -1,14 +1,10 @@
+# Standalone Storage Account template. Pull requests validate it and preview dev; deploy it by running
+# this workflow manually (Actions → Deploy Storage Account → Run workflow). Merging does not deploy it:
+# teams request services through projects/ instead.
 name: Deploy Storage Account
 
 on:
   pull_request:
-    paths:
-      - 'storage-account/**'
-      - 'modules/**'
-      - '.github/workflows/deploy-storage-account.yml'
-      - '.github/workflows/_bicep-deploy.yml'
-  push:
-    branches: [main]
     paths:
       - 'storage-account/**'
       - 'modules/**'
@@ -38,7 +34,8 @@ jobs:
   bicep:
     uses: ./.github/workflows/_bicep-deploy.yml
     with:
-      template-dir: storage-account
+      template-file: storage-account/main.bicep
+      parameters-file: storage-account/parameters/${{ inputs.environment || 'dev' }}.bicepparam
       environment: ${{ inputs.environment || 'dev' }}
       what-if-only: ${{ inputs.whatIfOnly || false }}
     secrets: inherit

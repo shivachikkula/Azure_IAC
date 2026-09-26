@@ -1,0 +1,103 @@
+# Projects: each team requests the services it needs in projects/<project>/<environment>.bicepparam.
+# - Pull request: validate every project file, then what-if each changed one
+#   (every project, if projects/main.bicep or modules/ changed).
+# - Push to main: deploy each project file changed by the push, to the matching GitHub environment.
+# - Manual run: preview or deploy one project file.
+# Folders starting with "_" (examples) are validated but never previewed or deployed.
+name: Deploy projects
+
+on:
+  pull_request:
+    paths:
+      - 'projects/**'
+      - 'modules/**'
+      - 'scripts/changed-projects.sh'
+      - '.github/workflows/deploy-projects.yml'
+      - '.github/workflows/_bicep-deploy.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'projects/**'
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Project folder name under projects/'
+        type: string
+        required: true
+      environment:
+        description: 'Environment (uses projects/<project>/<environment>.bicepparam)'
+        type: choice
+        options: [dev, prod]
+        default: dev
+      whatIfOnly:
+        description: 'Only preview changes (what-if), do not deploy'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write # OIDC login to Azure
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || 'deploy' }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Find project files
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.find.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate all project files
+        shell: bash
+        run: |
+          az bicep install
+          az bicep build --file projects/main.bicep --stdout > /dev/null
+          for f in projects/*/*.bicepparam; do
+            echo "Building $f"
+            az bicep build-params --file "$f" --stdout > /dev/null
+          done
+
+      - name: List project files to preview or deploy
+        id: find
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+          PROJECT: ${{ inputs.project }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          case "$EVENT" in
+            pull_request)      matrix=$(scripts/changed-projects.sh pr "$PR_BASE" "$PR_HEAD") ;;
+            push)              matrix=$(scripts/changed-projects.sh push "$PUSH_BEFORE" "$PUSH_AFTER") ;;
+            workflow_dispatch) matrix=$(scripts/changed-projects.sh dispatch "$PROJECT" "$ENVIRONMENT") ;;
+          esac
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Project files for this run"
+            jq -r 'if length == 0 then "_None: nothing to preview or deploy._" else .[] | "- `\(.parametersFile)` → \(.environment)" end' <<< "$matrix"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  project:
+    name: ${{ matrix.project }} (${{ matrix.environment }})
+    needs: plan
+    if: needs.plan.outputs.matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    uses: ./.github/workflows/_bicep-deploy.yml
+    with:
+      template-file: projects/main.bicep
+      parameters-file: ${{ matrix.parametersFile }}
+      environment: ${{ matrix.environment }}
+      what-if-only: ${{ inputs.whatIfOnly || false }}
+    secrets: inherit

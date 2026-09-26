@@ -3,6 +3,7 @@ using '../main.bicep'
 // Resource group (created if it doesn't exist) and region for all resources
 param resourceGroupName = 'rg-myapp-dev'
 param location = 'westus2' // eastus has no App Service quota on this subscription
+param resourceGroupLocation = 'eastus' // rg-myapp-dev already exists in eastus; its resources can still live in westus2
 
 param appName = 'myapp'
 param environment = 'dev'

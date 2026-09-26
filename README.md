@@ -1,8 +1,19 @@
 # Azure IaC
 
-Reusable Bicep templates for Azure. Each template deploys at subscription scope,
-creates its own resource group, and is driven entirely by a parameters file
-(`<template>/parameters/<environment>.bicepparam`) that also names the resource group and region.
+Reusable Bicep templates for Azure. Every template deploys at subscription scope,
+creates its own resource group, and is driven entirely by a parameters file that also
+names the resource group and region.
+
+## Requesting services for a project
+
+**Most teams should start in [`projects/`](projects/README.md).** Copy `projects/_example`,
+switch on only the services you need (App Service, Angular + .NET API, Function App,
+Storage account), and open a pull request: you get a what-if preview, and merging deploys it.
+
+## Standalone templates
+
+Each service also has its own template, deployed from `<template>/parameters/<environment>.bicepparam`
+by running its workflow manually (merging doesn't deploy these):
 
 | Template | Deploys |
 |---|---|
@@ -14,7 +25,10 @@ creates its own resource group, and is driven entirely by a parameters file
 Log Analytics + Application Insights are included (and can be turned off) in the app templates.
 
 ```
-├── modules/                   # Shared building blocks used by the templates
+├── projects/                  # Request services per project (start here)
+│   ├── main.bicep             #   one template with a switch per service
+│   └── _example/              #   copy to projects/<your-project>/
+├── modules/                   # Shared building blocks used by all templates
 │   ├── appServicePlan.bicep
 │   ├── webApp.bicep
 │   ├── functionApp.bicep
@@ -27,8 +41,8 @@ Log Analytics + Application Insights are included (and can be turned off) in the
 ├── web-angular-api/
 ├── function-app/
 ├── storage-account/
-├── scripts/                   # deploy.sh / deploy.ps1 for any template
-└── .github/workflows/         # _bicep-deploy.yml (shared) + deploy-<template>.yml
+├── scripts/                   # deploy.sh / deploy.ps1 for any template or project file
+└── .github/workflows/         # deploy-projects.yml, deploy-<template>.yml, shared _bicep-deploy.yml
 ```
 
 ## Prerequisites
@@ -50,7 +64,7 @@ Log Analytics + Application Insights are included (and can be turned off) in the
    read the resource group and location from it:
 
    ```bash
-   ./scripts/deploy.sh -p storage-account/parameters/dev.bicepparam --what-if
+   ./scripts/deploy.sh -p projects/orders/dev.bicepparam --what-if
    ./scripts/deploy.sh -p storage-account/parameters/dev.bicepparam
    ```
 
@@ -75,23 +89,17 @@ quota for that SKU in that region: change `location` or `skuName`, or request qu
 
 ## CI/CD with GitHub Actions
 
-Each template has a workflow, `.github/workflows/deploy-<template>.yml`, that calls the shared
-[`_bicep-deploy.yml`](.github/workflows/_bicep-deploy.yml). It runs when the template folder,
-`modules/` or the workflows change:
+| Workflow | Pull request | Push to `main` | Manual run |
+|---|---|---|---|
+| **Deploy projects** | Validate all project files; what-if each changed one (all of them if `projects/main.bicep` or `modules/` changed) | Deploy each project file changed by the push | Preview or deploy one project + environment |
+| **Deploy &lt;template&gt;** (one per standalone template) | Validate; what-if `dev` | — | Deploy `dev` or `prod`, or preview only |
 
-| Trigger | What happens |
-|---|---|
-| Pull request | Compile the template and all its parameter files, then run **what-if** against `dev` (result in the job summary) |
-| Push to `main` | Compile, then **deploy** to `dev` |
-| Manual (*Run workflow*) | Pick `dev` or `prod`, then deploy, or tick *whatIfOnly* to preview only |
+Both use the shared [`_bicep-deploy.yml`](.github/workflows/_bicep-deploy.yml). A project's
+`dev.bicepparam` deploys with the `dev` GitHub environment's credentials, `prod.bicepparam` with `prod`'s.
 
-A change under `modules/` triggers every template's workflow, so merging it deploys all templates to `dev`.
-To add an environment, add `<template>/parameters/<env>.bicepparam`, a GitHub environment with the same
-name, and the name to the workflow's `options` list.
-
-To add a new template: create `<name>/main.bicep` (subscription scope, with `resourceGroupName` and
-`location` parameters) and `<name>/parameters/dev.bicepparam`, then copy one of the
-`deploy-<template>.yml` callers and change the folder name in it.
+To add a new service: add a module under `modules/`, a `deploy<Service>` switch and settings
+block to `projects/main.bicep`, and optionally a standalone template folder with its own
+`deploy-<template>.yml` (copy an existing one and change the folder name).
 
 ### One-time setup
 

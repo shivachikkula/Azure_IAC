@@ -32,6 +32,7 @@ See the [root README](../README.md) for deploy scripts and the GitHub Actions se
 |---|---|---|
 | `resourceGroupName` | *(required)* | Resource group to create or update |
 | `location` | *(required)* | Azure region |
+| `resourceGroupLocation` | same as `location` | Set only if the resource group already exists in another region |
 | `appName` | *(required)* | Short name (2–20 chars) used in resource names |
 | `environment` | `dev` | `dev`, `test`, `uat`, `prod` |
 | `tags` | `{}` | Extra tags |

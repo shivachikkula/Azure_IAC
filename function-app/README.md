@@ -30,6 +30,7 @@ Flex Consumption is available in most but not all regions. List them with
 |---|---|---|
 | `resourceGroupName` | *(required)* | Resource group to create or update |
 | `location` | *(required)* | Azure region (must support Flex Consumption) |
+| `resourceGroupLocation` | same as `location` | Set only if the resource group already exists in another region |
 | `appName` | *(required)* | Short name (2–16 chars) used in resource names |
 | `environment` | `dev` | `dev`, `test`, `uat`, `prod` |
 | `functionAppName` | auto | Override the globally unique app name |
