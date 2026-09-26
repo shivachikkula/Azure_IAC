@@ -123,7 +123,7 @@ resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   tags: allTags
 }
 
-module plan 'modules/appServicePlan.bicep' = if (empty(existingAppServicePlanId)) {
+module plan '../modules/appServicePlan.bicep' = if (empty(existingAppServicePlanId)) {
   name: '${deployment().name}-plan'
   scope: rg
   params: {
@@ -137,7 +137,7 @@ module plan 'modules/appServicePlan.bicep' = if (empty(existingAppServicePlanId)
   }
 }
 
-module monitoring 'modules/monitoring.bicep' = if (enableMonitoring) {
+module monitoring '../modules/monitoring.bicep' = if (enableMonitoring) {
   name: '${deployment().name}-monitoring'
   scope: rg
   params: {
@@ -147,7 +147,7 @@ module monitoring 'modules/monitoring.bicep' = if (enableMonitoring) {
   }
 }
 
-module webApp 'modules/webApp.bicep' = {
+module webApp '../modules/webApp.bicep' = {
   name: '${deployment().name}-webapp'
   scope: rg
   params: {

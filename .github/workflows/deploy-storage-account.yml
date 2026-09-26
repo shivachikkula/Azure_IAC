@@ -1,23 +1,23 @@
-name: Deploy App Service
+name: Deploy Storage Account
 
 on:
   pull_request:
     paths:
-      - 'app-service/**'
+      - 'storage-account/**'
       - 'modules/**'
-      - '.github/workflows/deploy-app-service.yml'
+      - '.github/workflows/deploy-storage-account.yml'
       - '.github/workflows/_bicep-deploy.yml'
   push:
     branches: [main]
     paths:
-      - 'app-service/**'
+      - 'storage-account/**'
       - 'modules/**'
-      - '.github/workflows/deploy-app-service.yml'
+      - '.github/workflows/deploy-storage-account.yml'
       - '.github/workflows/_bicep-deploy.yml'
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target environment (uses app-service/parameters/<environment>.bicepparam)'
+        description: 'Target environment (uses storage-account/parameters/<environment>.bicepparam)'
         type: choice
         options: [dev, prod]
         default: dev
@@ -38,7 +38,7 @@ jobs:
   bicep:
     uses: ./.github/workflows/_bicep-deploy.yml
     with:
-      template-dir: app-service
+      template-dir: storage-account
       environment: ${{ inputs.environment || 'dev' }}
       what-if-only: ${{ inputs.whatIfOnly || false }}
     secrets: inherit

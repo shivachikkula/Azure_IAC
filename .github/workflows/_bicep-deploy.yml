@@ -1,0 +1,157 @@
+# Reusable workflow: validate, preview (what-if) and deploy one Bicep template folder.
+# Called by the deploy-<template>.yml workflows. The template is <template-dir>/main.bicep
+# and the parameters are <template-dir>/parameters/<environment>.bicepparam, which also
+# set the resource group name and location.
+name: Bicep deploy (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      template-dir:
+        description: 'Folder containing main.bicep and parameters/'
+        type: string
+        required: true
+      environment:
+        description: 'GitHub environment and parameters file name (dev, prod, ...)'
+        type: string
+        default: dev
+      what-if-only:
+        description: 'On manual runs, only preview changes'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write # OIDC login to Azure
+
+jobs:
+  validate:
+    name: Validate Bicep
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Explicit bash enables pipefail, so a failing az command piped into tee fails the step.
+        shell: bash
+        working-directory: ${{ inputs.template-dir }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bicep
+        run: az bicep install && az bicep version
+
+      - name: Build template
+        run: az bicep build --file main.bicep --stdout > /dev/null
+
+      - name: Build parameter files
+        run: |
+          for f in parameters/*.bicepparam; do
+            echo "Building $f"
+            az bicep build-params --file "$f" --stdout > /dev/null
+          done
+
+  what-if:
+    name: What-if (${{ inputs.environment }})
+    needs: validate
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.what-if-only)
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.template-dir }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read resource group and location from parameters file
+        id: params
+        env:
+          PARAMS_FILE: parameters/${{ inputs.environment }}.bicepparam
+        run: |
+          az bicep build-params --file "$PARAMS_FILE" --outfile params.json
+          rg=$(jq -r '.parameters.resourceGroupName.value // empty' params.json)
+          location=$(jq -r '.parameters.location.value // empty' params.json)
+          : "${rg:?resourceGroupName is not set in $PARAMS_FILE}"
+          : "${location:?location is not set in $PARAMS_FILE}"
+          echo "resourceGroup=$rg" >> "$GITHUB_OUTPUT"
+          echo "location=$location" >> "$GITHUB_OUTPUT"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run what-if
+        env:
+          TEMPLATE_DIR: ${{ inputs.template-dir }}
+          RESOURCE_GROUP: ${{ steps.params.outputs.resourceGroup }}
+          LOCATION: ${{ steps.params.outputs.location }}
+          PARAMS_FILE: parameters/${{ inputs.environment }}.bicepparam
+        run: |
+          az deployment sub what-if \
+            --location "$LOCATION" \
+            --template-file main.bicep \
+            --parameters "$PARAMS_FILE" \
+            | sed 's/\x1b\[[0-9;]*m//g' | tee whatif.txt
+          {
+            echo "### What-if: \`$TEMPLATE_DIR\` → \`$RESOURCE_GROUP\` ($LOCATION)"
+            echo '```'
+            cat whatif.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy (${{ inputs.environment }})
+    needs: validate
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.what-if-only)
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.template-dir }}
+    outputs:
+      deploymentOutputs: ${{ steps.deploy.outputs.json }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read resource group and location from parameters file
+        id: params
+        env:
+          PARAMS_FILE: parameters/${{ inputs.environment }}.bicepparam
+        run: |
+          az bicep build-params --file "$PARAMS_FILE" --outfile params.json
+          rg=$(jq -r '.parameters.resourceGroupName.value // empty' params.json)
+          location=$(jq -r '.parameters.location.value // empty' params.json)
+          : "${rg:?resourceGroupName is not set in $PARAMS_FILE}"
+          : "${location:?location is not set in $PARAMS_FILE}"
+          echo "resourceGroup=$rg" >> "$GITHUB_OUTPUT"
+          echo "location=$location" >> "$GITHUB_OUTPUT"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy Bicep
+        id: deploy
+        env:
+          TEMPLATE_DIR: ${{ inputs.template-dir }}
+          LOCATION: ${{ steps.params.outputs.location }}
+          PARAMS_FILE: parameters/${{ inputs.environment }}.bicepparam
+        run: |
+          outputs=$(az deployment sub create \
+            --location "$LOCATION" \
+            --name "${TEMPLATE_DIR}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --template-file main.bicep \
+            --parameters "$PARAMS_FILE" \
+            --query properties.outputs --output json)
+          echo "$outputs"
+          echo "json=$(jq -c 'with_entries(.value = .value.value)' <<< "$outputs")" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Deployed \`$TEMPLATE_DIR\`"
+            echo '| Output | Value |'
+            echo '|---|---|'
+            jq -r 'to_entries[] | select(.key | test("PrincipalId$") | not) | "| \(.key) | `\(.value.value)` |"' <<< "$outputs"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -60,6 +60,9 @@ param vnetSubnetId string = ''
 @description('Create a "staging" deployment slot (Standard tier or above).')
 param createStagingSlot bool = false
 
+@description('Origins allowed to call the app from a browser (CORS), e.g. ["https://my-client.azurewebsites.net"]. Empty to leave CORS unset.')
+param corsAllowedOrigins array = []
+
 var isLinux = osType == 'Linux'
 
 var linuxStackPrefix = {
@@ -147,6 +150,9 @@ var siteConfig = union(stackConfig, {
   scmMinTlsVersion: minTlsVersion
   healthCheckPath: empty(healthCheckPath) ? null : healthCheckPath
   vnetRouteAllEnabled: !empty(vnetSubnetId)
+  cors: empty(corsAllowedOrigins) ? null : {
+    allowedOrigins: corsAllowedOrigins
+  }
   appSettings: appSettingsArray
 })
 
