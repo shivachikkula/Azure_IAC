@@ -109,6 +109,63 @@ The deployment prints the web app name, URL and managed identity principal ID.
 
 List what your region supports: `az webapp list-runtimes --os linux` (or `--os windows`).
 
+## CI/CD with GitHub Actions
+
+[`.github/workflows/deploy-app-service.yml`](../.github/workflows/deploy-app-service.yml) runs on changes under `app-service/`:
+
+| Trigger | What happens |
+|---|---|
+| Pull request | Compile the template and all parameter files, then run **what-if** against `dev` (result goes in the job summary) |
+| Push to `main` | Compile, then **deploy** to `dev` |
+| Manual (*Run workflow*) | Pick `dev` or `prod`, then deploy, or tick *whatIfOnly* to preview only |
+
+The workflow uses `parameters/<environment>.bicepparam`, so add a matching file for any new environment
+(and add it to the `options` list in the workflow).
+
+### One-time setup
+
+The workflow signs in to Azure with OpenID Connect (OIDC), so no client secret is stored in GitHub.
+
+1. **Create an identity for GitHub** (app registration + service principal):
+
+   ```bash
+   APP_ID=$(az ad app create --display-name gh-azure-iac --query appId -o tsv)
+   az ad sp create --id "$APP_ID"
+   ```
+
+2. **Add a federated credential for each GitHub environment** (`dev`, `prod`):
+
+   ```bash
+   for env in dev prod; do
+     az ad app federated-credential create --id "$APP_ID" --parameters "{
+       \"name\": \"github-$env\",
+       \"issuer\": \"https://token.actions.githubusercontent.com\",
+       \"subject\": \"repo:<owner>/<repo>:environment:$env\",
+       \"audiences\": [\"api://AzureADTokenExchange\"]
+     }"
+   done
+   ```
+
+3. **Grant access.** Give *Contributor* on each target resource group (create them first), or on the
+   subscription if the workflow should create resource groups itself:
+
+   ```bash
+   az role assignment create --assignee "$APP_ID" --role Contributor \
+     --scope /subscriptions/<subscription-id>/resourceGroups/rg-myapp-dev
+   ```
+
+4. **Create GitHub environments** `dev` and `prod` (*Settings → Environments*) and add to each:
+
+   | Kind | Name | Value |
+   |---|---|---|
+   | Secret | `AZURE_CLIENT_ID` | `$APP_ID` |
+   | Secret | `AZURE_TENANT_ID` | `az account show --query tenantId -o tsv` |
+   | Secret | `AZURE_SUBSCRIPTION_ID` | `az account show --query id -o tsv` |
+   | Variable | `AZURE_RESOURCE_GROUP` | e.g. `rg-myapp-dev` |
+   | Variable | `AZURE_LOCATION` | e.g. `eastus` (used only if the workflow creates the resource group) |
+
+   Add *Required reviewers* to `prod` so production deploys wait for approval.
+
 ## Secrets
 
 Don't put secrets in `appSettings`. Store them in Key Vault, grant the web app's
@@ -129,7 +186,8 @@ This template provisions infrastructure only. Deploy code afterwards with e.g.:
 az webapp deploy -g rg-myapp-dev -n <webAppName> --src-path app.zip --type zip
 ```
 
-or the `azure/webapps-deploy` GitHub Action.
+or the `azure/webapps-deploy` GitHub Action. The infrastructure workflow exposes the web app
+name as the `webAppName` output of its `deploy` job, which an app deployment job can consume.
 
 ## Validate locally
 
