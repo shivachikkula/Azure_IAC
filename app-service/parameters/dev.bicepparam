@@ -18,6 +18,7 @@ param appSettings = {
   ASPNETCORE_ENVIRONMENT: 'Development'
 }
 param tags = {
-  owner: 'team-name'
-  costCenter: '0000'
+  owner: 'shiva'
+  costCenter: 'engineering'
+  project: 'myapp'
 }
